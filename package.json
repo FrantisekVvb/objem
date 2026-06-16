@@ -1,0 +1,13 @@
+{
+  "name": "objem",
+  "version": "1.0.0",
+  "description": "Objem — sestavování kvádru z krychlí",
+  "license": "MIT",
+  "scripts": {
+    "start": "npx --yes serve . -l 3471",
+    "dev": "npm start"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

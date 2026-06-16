@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Objem</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #ffffff;
+      color: #1a1a1a;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+
+    #stage {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      height: 100vh;
+      height: 100dvh;
+      padding: 16px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .ui-overlay {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 10px 14px;
+      width: 100%;
+      max-width: 980px;
+    }
+
+    .toolbar-btn,
+    #verify-btn,
+    #apply-cuboid-size-btn {
+      padding: 10px 18px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      background: #ffffff;
+      color: #1a1a1a;
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+
+    .toolbar-btn:hover,
+    #verify-btn:hover,
+    #apply-cuboid-size-btn:hover {
+      border-color: #9ca3af;
+      background: #f9fafb;
+    }
+
+    .toolbar-btn.is-active {
+      border-color: #3b50f0;
+      background: #f4f6ff;
+      color: #1e2a8a;
+    }
+
+    .volume-quiz,
+    .cuboid-size-quiz {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+
+    .volume-quiz-label {
+      font-size: 0.95rem;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    #volume-value,
+    .cuboid-dim-input {
+      width: 56px;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      background: #ffffff;
+      font-size: 0.95rem;
+      font-family: inherit;
+      text-align: center;
+    }
+
+    #volume-value {
+      width: 88px;
+    }
+
+    #volume-value:focus,
+    .cuboid-dim-input:focus {
+      outline: none;
+      border-color: #3b50f0;
+    }
+
+    .dim-sep,
+    .dim-unit {
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: #4b5563;
+    }
+
+    #volume-value.is-correct,
+    .cuboid-dim-input.is-correct {
+      border-color: #16a34a;
+      background: #ecfdf5;
+      color: #166534;
+    }
+
+    #volume-value.is-wrong,
+    .cuboid-dim-input.is-wrong {
+      border-color: #dc2626;
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
+    #volume-unit {
+      min-width: 92px;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      background: #ffffff;
+      font-size: 0.95rem;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    #volume-unit:focus {
+      outline: none;
+      border-color: #3b50f0;
+    }
+
+    #volume-unit.is-correct {
+      border-color: #16a34a;
+      background: #ecfdf5;
+      color: #166534;
+    }
+
+    #volume-unit.is-wrong {
+      border-color: #dc2626;
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
+    #verify-btn.is-correct {
+      border-color: #16a34a;
+      background: #ecfdf5;
+      color: #166534;
+    }
+
+    #verify-btn.is-wrong {
+      border-color: #dc2626;
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
+    #diagram-wrap {
+      flex: 1 1 auto;
+      min-height: 0;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: visible;
+    }
+
+    #diagram {
+      display: block;
+      touch-action: none;
+      user-select: none;
+      overflow: visible;
+    }
+
+    .stack-cube {
+      cursor: grab;
+    }
+
+    .stack-cube:active {
+      cursor: grabbing;
+    }
+
+    #static-layer,
+    #cuboid-hidden-edges,
+    #label-layer,
+    #cuboid-front-overlay,
+    #cuboid-exact,
+    #cuboid-exact-labels,
+    #cuboid-dynamic,
+    #cuboid-dynamic-labels {
+      pointer-events: none;
+    }
+
+    .placed-cube {
+      cursor: grab;
+    }
+
+    .placed-cube.is-dragging {
+      cursor: grabbing;
+    }
+
+    #diagram {
+      cursor: grab;
+    }
+
+    #diagram.is-dragging {
+      cursor: grabbing;
+    }
+
+    .stack-hit {
+      fill: transparent;
+      stroke: none;
+      pointer-events: all;
+    }
+
+    .cube-hit {
+      fill: transparent;
+      stroke: none;
+      pointer-events: all;
+    }
+  </style>
+</head>
+<body>
+  <main id="stage">
+    <div class="ui-overlay">
+      <button id="new-cuboid-btn" class="toolbar-btn" type="button">Nový kvádr</button>
+      <div class="cuboid-size-quiz" id="cuboid-size-quiz">
+        <span class="volume-quiz-label">Rozměry</span>
+        <input id="cuboid-width" class="cuboid-dim-input" type="number" min="1" step="1" inputmode="numeric" aria-label="Šířka v cm" />
+        <span class="dim-sep" aria-hidden="true">×</span>
+        <input id="cuboid-depth" class="cuboid-dim-input" type="number" min="1" step="1" inputmode="numeric" aria-label="Hloubka v cm" />
+        <span class="dim-sep" aria-hidden="true">×</span>
+        <input id="cuboid-height" class="cuboid-dim-input" type="number" min="1" step="1" inputmode="numeric" aria-label="Výška v cm" />
+        <span class="dim-unit">cm</span>
+        <button id="apply-cuboid-size-btn" type="button">Nastavit</button>
+      </div>
+      <button id="free-surface-btn" class="toolbar-btn" type="button">Volná plocha</button>
+      <div class="volume-quiz">
+        <span class="volume-quiz-label">Objem kvádru je</span>
+        <input id="volume-value" type="number" min="0" step="any" inputmode="decimal" aria-label="Hodnota objemu" />
+        <select id="volume-unit" aria-label="Jednotka objemu">
+          <option value="cm3">cm³</option>
+          <option value="mm3">mm³</option>
+        </select>
+        <button id="verify-btn" type="button">Ověřit</button>
+      </div>
+    </div>
+    <div id="diagram-wrap">
+      <svg id="diagram" width="178" height="242" viewBox="0 0 178 242" fill="none" xmlns="http://www.w3.org/2000/svg" overflow="visible" aria-label="Objem">
+        <rect id="diagram-bg" width="178" height="242" fill="#ffffff"/>
+        <g id="content">
+          <defs>
+            <g id="cm-cube-shape">
+              <path d="M50.3127 61H20.5L20.6498 31.1873L30.8371 21H60.7996V50.6629L50.3127 61Z" fill="#C8D4FA"/>
+              <path d="M20.6498 31.1873L30.8371 21H60.7996V50.6629L50.3127 61H20.5L20.6498 31.1873ZM50.3127 61V31.1873M60.7996 21L50.3127 31.1873M20.6498 31.1873H50.3127" stroke="#003CFF"/>
+            </g>
+            <g id="mm-cube-shape">
+              <path d="M126.481 50H123.5L123.515 47.0187L124.534 46H127.53V48.9663L126.481 50Z" fill="#FF9F9F"/>
+              <path d="M123.515 47.0187L124.534 46H127.53V48.9663L126.481 50H123.5L123.515 47.0187ZM126.481 50V47.0187M127.53 46L126.481 47.0187M123.515 47.0187H126.481" stroke="#880D0D" stroke-width="0.1"/>
+            </g>
+          </defs>
+
+          <g id="static-layer">
+            <g id="cuboid-hidden-edges"></g>
+            <g id="cuboid-exact"></g>
+            <g id="cuboid-dynamic" hidden>
+            </g>
+          </g>
+
+          <g id="cube-stack" aria-label="Zásobník krychlí">
+            <g class="stack-cube" data-type="cm3">
+              <use href="#cm-cube-shape" transform="translate(0 -5)"/>
+              <path d="M31.08 3.55V10H30.19V4.35H28.46L28.68 3.55H31.08ZM39.0356 5.02C39.7456 5.02 40.3256 5.28 40.7756 5.79L40.2456 6.37C39.9656 5.99 39.5656 5.8 39.0356 5.8C38.5456 5.8 38.1456 5.97 37.8356 6.3C37.5256 6.63 37.3656 7.04 37.3656 7.55C37.3656 8.06 37.5256 8.49 37.8356 8.83C38.1556 9.16 38.5556 9.33 39.0456 9.33C39.5356 9.33 39.9356 9.15 40.2356 8.79L40.7956 9.33C40.3356 9.86 39.7556 10.12 39.0456 10.12C38.2856 10.12 37.6656 9.87 37.1856 9.38C36.7156 8.89 36.4756 8.28 36.4756 7.56C36.4756 6.84 36.7056 6.24 37.1756 5.75C37.6456 5.26 38.2656 5.02 39.0356 5.02ZM47.5763 5.02C48.7663 5.02 49.5163 5.63 49.5163 6.74V10H48.6363V6.98C48.6363 6.19 48.1063 5.8 47.4163 5.8C47.0663 5.8 46.7663 5.91 46.5163 6.13C46.2663 6.35 46.1363 6.63 46.1363 6.96V10H45.2563V6.98C45.2563 6.19 44.7263 5.8 44.0363 5.8C43.6863 5.8 43.3863 5.91 43.1263 6.13C42.8763 6.35 42.7463 6.63 42.7463 6.96V10H41.8663V5.12H42.7063V5.21V5.69C43.0763 5.24 43.5963 5.02 44.2563 5.02C45.0363 5.02 45.5863 5.31 45.8963 5.88C46.1663 5.43 46.7863 5.02 47.5763 5.02ZM52.0327 1.81C52.7627 1.81 53.3227 2.26 53.3227 2.86C53.3227 3.27 53.1327 3.56 52.7627 3.73C53.1627 3.86 53.4227 4.24 53.4227 4.67C53.4227 5 53.2927 5.29 53.0227 5.52C52.7627 5.75 52.4427 5.86 52.0527 5.86C51.3827 5.86 50.9227 5.57 50.6927 4.99L51.2927 4.68C51.4027 5.04 51.6427 5.22 52.0127 5.22C52.4127 5.22 52.6827 5 52.6827 4.64C52.6827 4.31 52.3927 4.06 52.0727 4.05H51.8527V3.46C51.9627 3.46 52.0427 3.46 52.0927 3.45C52.3827 3.44 52.6327 3.23 52.6327 2.92C52.6327 2.63 52.3827 2.42 52.0327 2.42C51.6827 2.42 51.4527 2.6 51.3327 2.95L50.7627 2.65C50.9227 2.17 51.3927 1.81 52.0327 1.81Z" fill="black"/>
+              <rect class="stack-hit" x="18" y="13" width="46" height="46"/>
+            </g>
+            <g class="stack-cube" data-type="mm3">
+              <use href="#mm-cube-shape"/>
+              <path d="M112.08 29.55V36H111.19V30.35H109.46L109.68 29.55H112.08ZM123.606 31.02C124.796 31.02 125.546 31.63 125.546 32.74V36H124.666V32.98C124.666 32.19 124.136 31.8 123.446 31.8C123.096 31.8 122.796 31.91 122.546 32.13C122.296 32.35 122.166 32.63 122.166 32.96V36H121.286V32.98C121.286 32.19 120.756 31.8 120.066 31.8C119.716 31.8 119.416 31.91 119.156 32.13C118.906 32.35 118.776 32.63 118.776 32.96V36H117.896V31.12H118.736V31.21V31.69C119.106 31.24 119.626 31.02 120.286 31.02C121.066 31.02 121.616 31.31 121.926 31.88C122.196 31.43 122.816 31.02 123.606 31.02ZM132.922 31.02C134.112 31.02 134.862 31.63 134.862 32.74V36H133.982V32.98C133.982 32.19 133.452 31.8 132.762 31.8C132.412 31.8 132.112 31.91 131.862 32.13C131.612 32.35 131.482 32.63 131.482 32.96V36H130.602V32.98C130.602 32.19 130.072 31.8 129.382 31.8C129.032 31.8 128.732 31.91 128.472 32.13C128.222 32.35 128.092 32.63 128.092 32.96V36H127.212V31.12H128.052V31.21V31.69C128.422 31.24 128.942 31.02 129.602 31.02C130.382 31.02 130.932 31.31 131.242 31.88C131.512 31.43 132.132 31.02 132.922 31.02ZM137.378 27.81C138.108 27.81 138.668 28.26 138.668 28.86C138.668 29.27 138.478 29.56 138.108 29.73C138.508 29.86 138.768 30.24 138.768 30.67C138.768 31 138.638 31.29 138.368 31.52C138.108 31.75 137.788 31.86 137.398 31.86C136.728 31.86 136.268 31.57 136.038 30.99L136.638 30.68C136.748 31.04 136.988 31.22 137.358 31.22C137.758 31.22 138.028 31 138.028 30.64C138.028 30.31 137.738 30.06 137.418 30.05H137.198V29.46C137.308 29.46 137.388 29.46 137.438 29.45C137.728 29.44 137.978 29.23 137.978 28.92C137.978 28.63 137.728 28.42 137.378 28.42C137.028 28.42 136.798 28.6 136.678 28.95L136.108 28.65C136.268 28.17 136.738 27.81 137.378 27.81Z" fill="black"/>
+              <rect class="stack-hit" x="118" y="42" width="14" height="14"/>
+            </g>
+          </g>
+
+          <g id="placed-cubes"></g>
+
+          <g id="label-layer">
+            <g id="cuboid-front-overlay"></g>
+            <g id="cuboid-exact-labels">
+              <path d="M53.6486 230.52V234.53H54.5786V235.33H53.6486V237H52.7686V235.33H49.9486L49.8886 234.5L52.3986 230.52H53.6486ZM52.7686 231.25L50.7386 234.53H52.7686V231.25ZM61.1343 232.02C61.8443 232.02 62.4243 232.28 62.8743 232.79L62.3443 233.37C62.0643 232.99 61.6643 232.8 61.1343 232.8C60.6443 232.8 60.2443 232.97 59.9343 233.3C59.6243 233.63 59.4643 234.04 59.4643 234.55C59.4643 235.06 59.6243 235.49 59.9343 235.83C60.2543 236.16 60.6543 236.33 61.1443 236.33C61.6343 236.33 62.0343 236.15 62.3343 235.79L62.8943 236.33C62.4343 236.86 61.8543 237.12 61.1443 237.12C60.3843 237.12 59.7643 236.87 59.2843 236.38C58.8143 235.89 58.5743 235.28 58.5743 234.56C58.5743 233.84 58.8043 233.24 59.2743 232.75C59.7443 232.26 60.3643 232.02 61.1343 232.02ZM69.675 232.02C70.865 232.02 71.615 232.63 71.615 233.74V237H70.735V233.98C70.735 233.19 70.205 232.8 69.515 232.8C69.165 232.8 68.865 232.91 68.615 233.13C68.365 233.35 68.235 233.63 68.235 233.96V237H67.355V233.98C67.355 233.19 66.825 232.8 66.135 232.8C65.785 232.8 65.485 232.91 65.225 233.13C64.975 233.35 64.845 233.63 64.845 233.96V237H63.965V232.12H64.805V232.21V232.69C65.175 232.24 65.695 232.02 66.355 232.02C67.135 232.02 67.685 232.31 67.995 232.88C68.265 232.43 68.885 232.02 69.675 232.02Z" fill="black"/>
+              <path d="M141.23 205.43C141.8 205.43 142.28 205.6 142.67 205.94C143.06 206.28 143.25 206.68 143.25 207.14C143.25 207.79 142.97 208.26 142.41 208.54C143.02 208.78 143.44 209.42 143.44 210.18C143.44 210.73 143.23 211.19 142.81 211.56C142.4 211.93 141.87 212.12 141.24 212.12C140.12 212.12 139.37 211.46 139.05 210.63L139.78 210.24C140.05 210.96 140.52 211.32 141.2 211.32C142 211.32 142.53 210.86 142.53 210.11C142.53 209.43 142.01 208.98 141.26 208.95H140.77V208.21C140.96 208.22 141.13 208.22 141.28 208.2C141.96 208.15 142.36 207.8 142.36 207.2C142.36 206.64 141.88 206.23 141.21 206.23C140.57 206.23 140.07 206.64 139.88 207.23L139.17 206.87C139.3 206.46 139.55 206.11 139.92 205.84C140.29 205.57 140.73 205.43 141.23 205.43ZM150.036 207.02C150.746 207.02 151.326 207.28 151.776 207.79L151.246 208.37C150.966 207.99 150.566 207.8 150.036 207.8C149.546 207.8 149.146 207.97 148.836 208.3C148.526 208.63 148.366 209.04 148.366 209.55C148.366 210.06 148.526 210.49 148.836 210.83C149.156 211.16 149.556 211.33 150.046 211.33C150.536 211.33 150.936 211.15 151.236 210.79L151.796 211.33C151.336 211.86 150.756 212.12 150.046 212.12C149.286 212.12 148.666 211.87 148.186 211.38C147.716 210.89 147.476 210.28 147.476 209.56C147.476 208.84 147.706 208.24 148.176 207.75C148.646 207.26 149.266 207.02 150.036 207.02ZM158.576 207.02C159.766 207.02 160.516 207.63 160.516 208.74V212H159.636V208.98C159.636 208.19 159.106 207.8 158.416 207.8C158.066 207.8 157.766 207.91 157.516 208.13C157.266 208.35 157.136 208.63 157.136 208.96V212H156.256V208.98C156.256 208.19 155.726 207.8 155.036 207.8C154.686 207.8 154.386 207.91 154.126 208.13C153.876 208.35 153.746 208.63 153.746 208.96V212H152.866V207.12H153.706V207.21V207.69C154.076 207.24 154.596 207.02 155.256 207.02C156.036 207.02 156.586 207.31 156.896 207.88C157.166 207.43 157.786 207.02 158.576 207.02Z" fill="black"/>
+              <path d="M157.23 147.43C157.8 147.43 158.28 147.6 158.67 147.94C159.06 148.28 159.25 148.68 159.25 149.14C159.25 149.79 158.97 150.26 158.41 150.54C159.02 150.78 159.44 151.42 159.44 152.18C159.44 152.73 159.23 153.19 158.81 153.56C158.4 153.93 157.87 154.12 157.24 154.12C156.12 154.12 155.37 153.46 155.05 152.63L155.78 152.24C156.05 152.96 156.52 153.32 157.2 153.32C158 153.32 158.53 152.86 158.53 152.11C158.53 151.43 158.01 150.98 157.26 150.95H156.77V150.21C156.96 150.22 157.13 150.22 157.28 150.2C157.96 150.15 158.36 149.8 158.36 149.2C158.36 148.64 157.88 148.23 157.21 148.23C156.57 148.23 156.07 148.64 155.88 149.23L155.17 148.87C155.3 148.46 155.55 148.11 155.92 147.84C156.29 147.57 156.73 147.43 157.23 147.43ZM166.036 149.02C166.746 149.02 167.326 149.28 167.776 149.79L167.246 150.37C166.966 149.99 166.566 149.8 166.036 149.8C165.546 149.8 165.146 149.97 164.836 150.3C164.526 150.63 164.366 151.04 164.366 151.55C164.366 152.06 164.526 152.49 164.836 152.83C165.156 153.16 165.556 153.33 166.046 153.33C166.536 153.33 166.936 153.15 167.236 152.79L167.796 153.33C167.336 153.86 166.756 154.12 166.046 154.12C165.286 154.12 164.666 153.87 164.186 153.38C163.716 152.89 163.476 152.28 163.476 151.56C163.476 150.84 163.706 150.24 164.176 149.75C164.646 149.26 165.266 149.02 166.036 149.02ZM174.576 149.02C175.766 149.02 176.516 149.63 176.516 150.74V154H175.636V150.98C175.636 150.19 175.106 149.8 174.416 149.8C174.066 149.8 173.766 149.91 173.516 150.13C173.266 150.35 173.136 150.63 173.136 150.96V154H172.256V150.98C172.256 150.19 171.726 149.8 171.036 149.8C170.686 149.8 170.386 149.91 170.126 150.13C169.876 150.35 169.746 150.63 169.746 150.96V154H168.866V149.12H169.706V149.21V149.69C170.076 149.24 170.596 149.02 171.256 149.02C172.036 149.02 172.586 149.31 172.896 149.88C173.166 149.43 173.786 149.02 174.576 149.02Z" fill="black"/>
+            </g>
+            <g id="cuboid-dynamic-labels"></g>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </main>
+  <script src="main.js"></script>
+</body>
+</html>
