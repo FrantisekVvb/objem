@@ -3,7 +3,8 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const SUB = 10;
 const DIAGRAM_WIDTH = 178;
 const DIAGRAM_HEIGHT = 242;
-const CUBOID_ORIGIN = { x: 0.5, y: 220 };
+const DEFAULT_CUBOID_ORIGIN = { x: 0.5, y: 220 };
+let cuboidOrigin = { ...DEFAULT_CUBOID_ORIGIN };
 // Rozteče z přesného SVG tvaru 1 cm³ krychle (ne z obrysu kvádru).
 const FW = 29.8127;
 const DD = 10.1873;
@@ -15,6 +16,9 @@ const CM_CUBE_ORIGIN = { x: 20.5, y: 61 };
 const MM_CUBE_ORIGIN = { x: 123.5, y: 50 };
 const CUBOID_MIN_DM = 1;
 const CUBOID_MAX_DM = 4;
+const CUBOID_SEARCH_MAX_DM = 16;
+const STACK_CONTENT_BOUNDS = { minX: 8, minY: 0, maxX: 172, maxY: 72 };
+const CONTENT_LABEL_PADDING = 22;
 const TOOLBAR_RESERVE = 48;
 const VIEWPORT_SAFETY = 0.92;
 const MIN_FIT_SCALE = 0.75;
@@ -26,11 +30,15 @@ const WIREFRAME_FRONT_EDGE = 116;
 const TARGET_UNIT = WIREFRAME_FRONT_EDGE / EXACT_CUBOID.widthDm; // 29
 // Škálujeme krychli tak, aby její „přední hrana“ (FW) měla přesně TARGET_UNIT.
 const CUBE_SCALE_TO_WIREFRAME = TARGET_UNIT / FW;
-// Kroky projekce pro hloubku/výšku bereme z kvádru ve vašem SVG, aby přesně seděl „svislý rozměr“.
-// (0.5,130.5)->(31,100) má délku 30.5, (147,189.5)->(147,100) má délku 89.5.
-const WIREFRAME_UNIT = TARGET_UNIT; // osa „šířky“ (sx)
-const WIREFRAME_DEPTH_STEP = 30.5 / EXACT_CUBOID.depthDm; // osa „hloubky“ (sy)
-const WIREFRAME_HEIGHT_STEP = 89.5 / EXACT_CUBOID.heightDm; // osa „výšky“ (sz)
+// Pro skládání krychlí používáme přesné rozměry z tvaru krychle po škálování (ne z obrysu kvádru).
+const CUBE_PROJ_WIDTH = FW * CUBE_SCALE_TO_WIREFRAME;
+const CUBE_PROJ_HEIGHT = FH * CUBE_SCALE_TO_WIREFRAME;
+const CUBE_PROJ_DEPTH = DD * CUBE_SCALE_TO_WIREFRAME;
+// Mřížka kvádru musí odpovídat promítnuté velikosti krychle ve všech osách.
+const WIREFRAME_UNIT = CUBE_PROJ_WIDTH;
+const WIREFRAME_DEPTH_STEP = CUBE_PROJ_DEPTH;
+const WIREFRAME_HEIGHT_STEP = CUBE_PROJ_HEIGHT;
+const FREE_SURFACE_CUBOID = { widthDm: 10, depthDm: 6, heightDm: 4 };
 
 const CUBE_TYPES = {
   cm3: {
@@ -59,12 +67,13 @@ const diagramWrap = document.getElementById("diagram-wrap");
 const stage = document.getElementById("stage");
 const newCuboidBtn = document.getElementById("new-cuboid-btn");
 const freeSurfaceBtn = document.getElementById("free-surface-btn");
+const uiOverlay = document.querySelector(".ui-overlay");
 const cuboidSizeQuiz = document.getElementById("cuboid-size-quiz");
 const cuboidWidthInput = document.getElementById("cuboid-width");
 const cuboidDepthInput = document.getElementById("cuboid-depth");
 const cuboidHeightInput = document.getElementById("cuboid-height");
 const applyCuboidSizeBtn = document.getElementById("apply-cuboid-size-btn");
-const volumeQuiz = document.querySelector(".volume-quiz");
+const volumeQuiz = document.getElementById("volume-quiz");
 const volumeValueInput = document.getElementById("volume-value");
 const volumeUnitSelect = document.getElementById("volume-unit");
 const verifyBtn = document.getElementById("verify-btn");
@@ -108,14 +117,14 @@ function parseTranslate(element) {
 function subGridToScreen(sx, sy, sz) {
   return {
     // Hloubka (sy) jde doprava a nahoru – stejně jako ve vzorovém SVG se dvěma krychlemi.
-    x: CUBOID_ORIGIN.x + (sx / SUB) * WIREFRAME_UNIT + (sy / SUB) * WIREFRAME_DEPTH_STEP,
-    y: CUBOID_ORIGIN.y - (sz / SUB) * WIREFRAME_HEIGHT_STEP - (sy / SUB) * WIREFRAME_DEPTH_STEP,
+    x: cuboidOrigin.x + (sx / SUB) * WIREFRAME_UNIT + (sy / SUB) * WIREFRAME_DEPTH_STEP,
+    y: cuboidOrigin.y - (sz / SUB) * WIREFRAME_HEIGHT_STEP - (sy / SUB) * WIREFRAME_DEPTH_STEP,
   };
 }
 
 function screenToSubGrid(screenX, screenY) {
-  const localX = screenX - CUBOID_ORIGIN.x;
-  const localY = screenY - CUBOID_ORIGIN.y;
+  const localX = screenX - cuboidOrigin.x;
+  const localY = screenY - cuboidOrigin.y;
   // Přibližný inverz k subGridToScreen (počítáme nejdřív hloubku ze svislé složky).
   const syEst = -localY / (WIREFRAME_DEPTH_STEP / SUB);
   const sxEst = (localX - syEst * (WIREFRAME_DEPTH_STEP / SUB)) / (WIREFRAME_UNIT / SUB);
@@ -246,8 +255,12 @@ function getSnapDistance(anchorX, anchorY, snapped) {
   return Math.hypot(screen.x - anchorX, screen.y - anchorY);
 }
 
-function getCuboidScreenBounds() {
-  const bounds = getCuboidSubSize();
+function getCuboidScreenBoundsForSize(widthDm, depthDm, heightDm) {
+  const bounds = {
+    width: widthDm * SUB,
+    depth: depthDm * SUB,
+    height: heightDm * SUB,
+  };
   const xs = [];
   const ys = [];
 
@@ -276,11 +289,26 @@ function getCuboidScreenBounds() {
   };
 }
 
-function shouldSnapToCuboid(anchorX, anchorY) {
-  if (isFreeSurfaceMode) {
-    return false;
-  }
+function getCuboidScreenBounds() {
+  return getCuboidScreenBoundsForSize(CUBOID.widthDm, CUBOID.depthDm, CUBOID.heightDm);
+}
 
+function getContentBoundsForCuboidSize(widthDm, depthDm, heightDm) {
+  const cuboid = getCuboidScreenBoundsForSize(widthDm, depthDm, heightDm);
+  const stack = isFreeSurfaceMode ? getStackBounds() : STACK_CONTENT_BOUNDS;
+  return {
+    minX: Math.min(stack.minX, cuboid.minX - CONTENT_LABEL_PADDING),
+    minY: Math.min(stack.minY, cuboid.minY - CONTENT_LABEL_PADDING),
+    maxX: Math.max(stack.maxX, cuboid.maxX + CONTENT_LABEL_PADDING),
+    maxY: Math.max(stack.maxY, cuboid.maxY + CONTENT_LABEL_PADDING),
+  };
+}
+
+function getContentBounds() {
+  return getContentBoundsForCuboidSize(CUBOID.widthDm, CUBOID.depthDm, CUBOID.heightDm);
+}
+
+function shouldSnapToCuboid(anchorX, anchorY) {
   // Snap jen pokud kurzor míří do projekce kvádru (mírná tolerance).
   const pad = 10;
   const bounds = getCuboidScreenBounds();
@@ -293,9 +321,10 @@ function shouldSnapToCuboid(anchorX, anchorY) {
 }
 
 function findNearestBigCubeCell(anchorX, anchorY, excludeId) {
-  // Pro velkou krychli (dm3) je mřížka malá, takže můžeme vybrat nejbližší buňku přesně
-  // a tím umožnit přichytávání i "na sebe" (osa z) bez nepřesností inverzní projekce.
   const subSize = SUB;
+
+  // Pro velkou krychli (cm³) je mřížka malá, takže můžeme vybrat nejbližší buňku přesně
+  // a tím umožnit přichytávání i "na sebe" (osa z) bez nepřesností inverzní projekce.
   const bounds = getCuboidSubSize();
 
   let best = null;
@@ -342,13 +371,19 @@ function sortPlacedCubes() {
   cubes.forEach((cube) => placedCubesLayer.appendChild(cube));
 }
 
+function getCubeProjectionSize(cells) {
+  return {
+    w: CUBE_PROJ_WIDTH * cells,
+    h: CUBE_PROJ_HEIGHT * cells,
+    d: CUBE_PROJ_DEPTH * cells,
+  };
+}
+
 function getCubePickRects(cube) {
   const def = CUBE_TYPES[cube.dataset.type];
   const cells = def.subSize / SUB;
   const anchor = getCubeScreenAnchor(cube);
-  const w = WIREFRAME_UNIT * cells;
-  const h = WIREFRAME_HEIGHT_STEP * cells;
-  const d = WIREFRAME_DEPTH_STEP * cells;
+  const { w, h, d } = getCubeProjectionSize(cells);
 
   return [
     { x: anchor.x, y: anchor.y - h, w, h },
@@ -438,9 +473,7 @@ function setCubeGridPosition(element, sx, sy, sz) {
 function createPlacedCubeHitArea(type) {
   const def = CUBE_TYPES[type];
   const cells = def.subSize / SUB;
-  const w = WIREFRAME_UNIT * cells;
-  const h = WIREFRAME_HEIGHT_STEP * cells;
-  const d = WIREFRAME_DEPTH_STEP * cells;
+  const { w, h, d } = getCubeProjectionSize(cells);
   const originX = def.origin.x * def.scale;
   const originY = def.origin.y * def.scale;
   const hit = document.createElementNS(SVG_NS, "path");
@@ -478,14 +511,17 @@ function bringToFront(element) {
   placedCubesLayer.appendChild(element);
 }
 
+function getStackTransformOffset() {
+  return parseTranslate(cubeStack);
+}
+
 function startDragFromStack(type, localX, localY) {
   const def = CUBE_TYPES[type];
   const cube = createPlacedCube(type, 0, 0, 0);
   clearOccupied(cube.dataset.id);
-  // Nově vytvořená krychle se má objevit přesně na stejném místě jako krychle v zásobníku.
-  // Jako referenční bod používáme stejný "anchor" jako u ostatních krychlí: (origin.x, origin.y).
-  const stackX = def.origin.x;
-  const stackY = def.origin.y;
+  const stackOffset = getStackTransformOffset();
+  const stackX = def.origin.x * def.scale + stackOffset.x;
+  const stackY = (def.origin.y + (type === "cm3" ? -5 : 0)) * def.scale + stackOffset.y;
   setCubeScreenAnchor(cube, stackX, stackY);
   bringToFront(cube);
   placedCubesLayer.classList.add("is-dragging");
@@ -564,6 +600,7 @@ function endDrag() {
   const def = CUBE_TYPES[element.dataset.type];
   const id = element.dataset.id;
   const anchor = getCubeScreenAnchor(element);
+
   let snapped = null;
   const snapLimit = SNAP_THRESHOLD * 1.2;
 
@@ -583,7 +620,7 @@ function endDrag() {
     }
   }
 
-  if (snapped && (isFreeSurfaceMode || canPlaceAt(snapped.sx, snapped.sy, snapped.sz, def.subSize, id))) {
+  if (snapped && canPlaceAt(snapped.sx, snapped.sy, snapped.sz, def.subSize, id)) {
     setCubeGridPosition(element, snapped.sx, snapped.sy, snapped.sz);
     markOccupied(snapped.sx, snapped.sy, snapped.sz, def.subSize, id);
   } else {
@@ -718,6 +755,18 @@ function getAvailableDiagramSize() {
   };
 }
 
+function getFitScaleForCuboidSize(widthDm, depthDm, heightDm) {
+  const bounds = getContentBoundsForCuboidSize(widthDm, depthDm, heightDm);
+  const contentWidth = bounds.maxX - bounds.minX;
+  const contentHeight = bounds.maxY - bounds.minY;
+  const available = getAvailableDiagramSize();
+
+  return Math.min(
+    (available.width * VIEWPORT_SAFETY) / contentWidth,
+    (available.height * VIEWPORT_SAFETY) / contentHeight,
+  );
+}
+
 function getFitScale() {
   const available = getAvailableDiagramSize();
   return Math.min(
@@ -727,8 +776,39 @@ function getFitScale() {
 }
 
 function getMaxCuboidDm() {
-  const max = getFitScale() >= MIN_FIT_SCALE ? CUBOID_MAX_DM : CUBOID_MIN_DM;
-  return { widthDm: max, depthDm: max, heightDm: max };
+  let widthDm = CUBOID_MIN_DM;
+  let depthDm = CUBOID_MIN_DM;
+  let heightDm = CUBOID_MIN_DM;
+
+  for (let candidate = CUBOID_MIN_DM; candidate <= CUBOID_SEARCH_MAX_DM; candidate += 1) {
+    if (getFitScaleForCuboidSize(candidate, depthDm, heightDm) >= MIN_FIT_SCALE) {
+      widthDm = candidate;
+    } else {
+      break;
+    }
+  }
+
+  for (let candidate = CUBOID_MIN_DM; candidate <= CUBOID_SEARCH_MAX_DM; candidate += 1) {
+    if (getFitScaleForCuboidSize(widthDm, candidate, heightDm) >= MIN_FIT_SCALE) {
+      depthDm = candidate;
+    } else {
+      break;
+    }
+  }
+
+  for (let candidate = CUBOID_MIN_DM; candidate <= CUBOID_SEARCH_MAX_DM; candidate += 1) {
+    if (getFitScaleForCuboidSize(widthDm, depthDm, candidate) >= MIN_FIT_SCALE) {
+      heightDm = candidate;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    widthDm: Math.min(widthDm, CUBOID_MAX_DM),
+    depthDm: Math.min(depthDm, CUBOID_MAX_DM),
+    heightDm: Math.min(heightDm, CUBOID_MAX_DM),
+  };
 }
 
 function clampCuboidSize(widthDm, depthDm, heightDm) {
@@ -753,13 +833,108 @@ function clearPlacedCubes() {
   occupancy.clear();
 }
 
+function updateQuizPanelsVisibility() {
+  uiOverlay.classList.toggle("is-free-surface", isFreeSurfaceMode);
+  volumeQuiz.hidden = isFreeSurfaceMode;
+  cuboidSizeQuiz.hidden = isFreeSurfaceMode;
+}
+
 function updateToolbarModeState() {
   newCuboidBtn.classList.toggle("is-active", !isFreeSurfaceMode);
   freeSurfaceBtn.classList.toggle("is-active", isFreeSurfaceMode);
+  updateQuizPanelsVisibility();
+}
+
+function getStackLocalBounds() {
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  cubeStack.querySelectorAll(".stack-cube").forEach((stackCube) => {
+    const box = stackCube.getBBox();
+    minX = Math.min(minX, box.x);
+    maxX = Math.max(maxX, box.x + box.width);
+    minY = Math.min(minY, box.y);
+    maxY = Math.max(maxY, box.y + box.height);
+  });
+
+  if (!Number.isFinite(minX)) {
+    return { ...STACK_CONTENT_BOUNDS };
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
+function getStackBounds() {
+  const bbox = cubeStack.getBBox();
+  return {
+    minX: bbox.x,
+    minY: bbox.y,
+    maxX: bbox.x + bbox.width,
+    maxY: bbox.y + bbox.height,
+  };
+}
+
+function resetStackPosition() {
+  cubeStack.removeAttribute("transform");
+}
+
+function resetCuboidOrigin() {
+  cuboidOrigin = { ...DEFAULT_CUBOID_ORIGIN };
+}
+
+function centerFreeSurfaceLayoutHorizontally() {
+  resetCuboidOrigin();
+  resetStackPosition();
+
+  const cuboidBounds = getCuboidScreenBounds();
+  const stackBounds = getStackLocalBounds();
+  const targetCenterX = (
+    Math.min(cuboidBounds.minX, stackBounds.minX) +
+    Math.max(cuboidBounds.maxX, stackBounds.maxX)
+  ) / 2;
+
+  cuboidOrigin.x += targetCenterX - (cuboidBounds.minX + cuboidBounds.maxX) / 2;
+
+  const stackBoundsAfterCuboidShift = getStackLocalBounds();
+  const stackOffsetX = targetCenterX - (stackBoundsAfterCuboidShift.minX + stackBoundsAfterCuboidShift.maxX) / 2;
+  if (Math.abs(stackOffsetX) > 0.01) {
+    cubeStack.setAttribute("transform", `translate(${stackOffsetX}, 0)`);
+  }
 }
 
 function updateViewBox() {
-  const fitScale = getFitScale();
+  const available = getAvailableDiagramSize();
+
+  if (isFreeSurfaceMode) {
+    const bounds = getContentBounds();
+    const contentW = bounds.maxX - bounds.minX;
+    const contentH = bounds.maxY - bounds.minY;
+    const fitScale = Math.min(
+      (available.width * VIEWPORT_SAFETY) / contentW,
+      (available.height * VIEWPORT_SAFETY) / contentH,
+    );
+    const displayWidth = contentW * fitScale;
+    const displayHeight = contentH * fitScale;
+
+    diagram.setAttribute("viewBox", `${bounds.minX} ${bounds.minY} ${contentW} ${contentH}`);
+    diagram.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    diagram.style.width = `${displayWidth}px`;
+    diagram.style.height = `${displayHeight}px`;
+    diagramBg.setAttribute("x", String(bounds.minX));
+    diagramBg.setAttribute("y", String(bounds.minY));
+    diagramBg.setAttribute("width", String(contentW));
+    diagramBg.setAttribute("height", String(contentH));
+    diagramWrap.style.width = `${displayWidth}px`;
+    diagramWrap.style.height = `${displayHeight}px`;
+    return;
+  }
+
+  const fitScale = Math.min(
+    (available.width * VIEWPORT_SAFETY) / DIAGRAM_WIDTH,
+    (available.height * VIEWPORT_SAFETY) / DIAGRAM_HEIGHT,
+  );
   const displayWidth = DIAGRAM_WIDTH * fitScale;
   const displayHeight = DIAGRAM_HEIGHT * fitScale;
 
@@ -780,23 +955,73 @@ function setStaticLayerVisible(visible) {
   labelLayer.style.visibility = visible ? "visible" : "hidden";
 }
 
-function enterFreeSurfaceMode() {
-  isFreeSurfaceMode = true;
-  setStaticLayerVisible(false);
-  volumeQuiz.hidden = true;
-  cuboidSizeQuiz.hidden = true;
+function isFreeSurfaceCuboid(widthDm, depthDm, heightDm) {
+  return (
+    widthDm === FREE_SURFACE_CUBOID.widthDm &&
+    depthDm === FREE_SURFACE_CUBOID.depthDm &&
+    heightDm === FREE_SURFACE_CUBOID.heightDm
+  );
+}
+
+function applyFreeSurfaceCuboid() {
+  CUBOID = { ...FREE_SURFACE_CUBOID };
+  centerFreeSurfaceLayoutHorizontally();
   clearPlacedCubes();
   resetVolumeQuiz();
+  renderCuboidWireframe();
+}
+
+function initStackCubeScales() {
+  cubeStack.querySelectorAll(".stack-cube").forEach((stackCube) => {
+    const type = stackCube.dataset.type;
+    const scale = CUBE_TYPES[type].scale;
+    const use = stackCube.querySelector("use");
+    if (!use) {
+      return;
+    }
+
+    if (type === "cm3") {
+      use.setAttribute("transform", `translate(0 -5) scale(${scale})`);
+    } else {
+      use.setAttribute("transform", `scale(${scale})`);
+    }
+  });
+}
+function applyCuboidDimensions(widthDm, depthDm, heightDm, { clamp = true } = {}) {
+  CUBOID = clamp
+    ? clampCuboidSize(widthDm, depthDm, heightDm)
+    : {
+        widthDm: Math.round(widthDm),
+        depthDm: Math.round(depthDm),
+        heightDm: Math.round(heightDm),
+      };
+  clearPlacedCubes();
+  resetVolumeQuiz();
+  renderCuboidWireframe();
+  updateCuboidSizeInputs();
+}
+
+function enterFreeSurfaceMode() {
+  if (isFreeSurfaceMode) {
+    exitFreeSurfaceMode();
+    updateViewBox();
+    return;
+  }
+
+  isFreeSurfaceMode = true;
+  setStaticLayerVisible(true);
   updateToolbarModeState();
+  applyFreeSurfaceCuboid();
   updateViewBox();
 }
 
 function exitFreeSurfaceMode() {
   isFreeSurfaceMode = false;
+  resetCuboidOrigin();
+  resetStackPosition();
   setStaticLayerVisible(true);
-  volumeQuiz.hidden = false;
-  cuboidSizeQuiz.hidden = false;
   updateToolbarModeState();
+  renderCuboidWireframe();
 }
 
 function cornerSubGrid(gx, gy, gz) {
@@ -887,6 +1112,16 @@ function setCuboidLayerVisibility(useExact) {
   cuboidDynamicLabels.style.display = useExact ? "none" : "inline";
 }
 
+function updateCuboidPresentation() {
+  const showCuboidChrome = !isFreeSurfaceMode;
+  cuboidHiddenEdges.style.visibility = showCuboidChrome ? "visible" : "hidden";
+  cuboidFrontOverlay.style.visibility = showCuboidChrome ? "visible" : "hidden";
+  cuboidExact.style.visibility = showCuboidChrome ? "visible" : "hidden";
+  cuboidDynamic.style.visibility = showCuboidChrome ? "visible" : "hidden";
+  cuboidExactLabels.style.visibility = showCuboidChrome ? "visible" : "hidden";
+  cuboidDynamicLabels.style.visibility = showCuboidChrome ? "visible" : "hidden";
+}
+
 function renderCuboidWireframe() {
   const { widthDm, depthDm, heightDm } = CUBOID;
   const useExact = isExactCuboidSize(widthDm, depthDm, heightDm);
@@ -902,6 +1137,7 @@ function renderCuboidWireframe() {
 
   renderHiddenEdges();
   renderFrontOverlay();
+  updateCuboidPresentation();
   updateViewBox();
 }
 
@@ -937,12 +1173,7 @@ function applyCuboidSizeFromInputs() {
 
 function setCuboidSize(widthDm, depthDm, heightDm) {
   exitFreeSurfaceMode();
-  const clamped = clampCuboidSize(widthDm, depthDm, heightDm);
-  CUBOID = clamped;
-  clearPlacedCubes();
-  resetVolumeQuiz();
-  renderCuboidWireframe();
-  updateCuboidSizeInputs();
+  applyCuboidDimensions(widthDm, depthDm, heightDm);
 }
 
 function getCuboidVolumeCm3() {
@@ -998,7 +1229,11 @@ function generateRandomCuboid() {
 
 function handleViewportChange() {
   if (isFreeSurfaceMode) {
-    updateViewBox();
+    if (!isFreeSurfaceCuboid(CUBOID.widthDm, CUBOID.depthDm, CUBOID.heightDm)) {
+      applyFreeSurfaceCuboid();
+    } else {
+      updateViewBox();
+    }
     return;
   }
 
@@ -1021,6 +1256,7 @@ function initCuboid() {
 }
 
 initCuboid();
+initStackCubeScales();
 updateToolbarModeState();
 newCuboidBtn.addEventListener("click", generateRandomCuboid);
 applyCuboidSizeBtn.addEventListener("click", applyCuboidSizeFromInputs);

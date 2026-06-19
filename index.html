@@ -68,6 +68,11 @@
       color: #1e2a8a;
     }
 
+    .ui-overlay.is-free-surface .volume-quiz,
+    .ui-overlay.is-free-surface .cuboid-size-quiz {
+      display: none !important;
+    }
+
     .volume-quiz,
     .cuboid-size-quiz {
       display: flex;
@@ -250,7 +255,7 @@
         <button id="apply-cuboid-size-btn" type="button">Nastavit</button>
       </div>
       <button id="free-surface-btn" class="toolbar-btn" type="button">Volná plocha</button>
-      <div class="volume-quiz">
+      <div class="volume-quiz" id="volume-quiz">
         <span class="volume-quiz-label">Objem kvádru je</span>
         <input id="volume-value" type="number" min="0" step="any" inputmode="decimal" aria-label="Hodnota objemu" />
         <select id="volume-unit" aria-label="Jednotka objemu">
